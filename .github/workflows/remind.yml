@@ -1,0 +1,129 @@
+name: Remind Untagged Issues
+
+# scout が起票した Issue で、人間判断ラベル (human-actioned/notable/noise/wontfix)
+# が STALE_HOURS 以上付与されていない open Issue があれば、まとめた催促 Issue
+# を 1 日 1 件起票する。本文末の `cc @aa-0921` でメール通知をトリガする。
+
+on:
+  schedule:
+    # 1 日 1 回 UTC 22:37 (= JST 07:37)。off-minute で silent skip を回避
+    - cron: "37 22 * * *"
+  workflow_dispatch:
+    inputs:
+      stale_hours:
+        description: "何時間以上ラベルなしの Issue を催促対象にするか"
+        type: string
+        default: "24"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remind
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
+      GH_REPO: aa-0921/auto-earn-agent
+      STALE_HOURS: ${{ inputs.stale_hours || '24' }}
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Find untagged scout issues and post reminder
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import urllib.error
+          from datetime import datetime, timezone, timedelta
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["GH_REPO"]
+          stale_hours = int(os.environ.get("STALE_HOURS", "24"))
+
+          API = "https://api.github.com"
+          HEADERS = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "auto-earn-agent-remind",
+          }
+
+          def gh(method, path, body=None):
+              url = f"{API}{path}"
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  **HEADERS,
+                  "Content-Type": "application/json",
+              })
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  return json.loads(r.read().decode())
+
+          # 1) scout ラベル付き open Issue を取得（最大 100 件）
+          issues = gh("GET", f"/repos/{repo}/issues?state=open&labels=scout&per_page=100")
+          decided = {"human-actioned", "notable", "noise", "wontfix"}
+          cutoff = datetime.now(timezone.utc) - timedelta(hours=stale_hours)
+
+          stale = []
+          for it in issues:
+              if "pull_request" in it:
+                  continue
+              labels = {l["name"] for l in it.get("labels", [])}
+              if labels & decided:
+                  continue
+              created = datetime.fromisoformat(it["created_at"].replace("Z", "+00:00"))
+              if created > cutoff:
+                  continue
+              stale.append(it)
+
+          print(f"未判断 Issue 数: {len(stale)}")
+          if not stale:
+              print("催促対象なし。終了。")
+              sys.exit(0)
+
+          # 2) 本日既に催促 Issue が起票されていれば skip（重複起票防止）
+          today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+          existing = gh("GET", f"/repos/{repo}/issues?state=open&labels=reminder&per_page=20")
+          for it in existing:
+              if today in it.get("title", ""):
+                  print(f"本日既に催促 Issue 起票済 (#{it['number']})。skip。")
+                  sys.exit(0)
+
+          # 3) 催促 Issue を起票
+          lines = [
+              "## 未判断 scout Issue 一覧",
+              "",
+              f"下記 {len(stale)} 件のラベル付け待ち。`human-actioned` / `notable` / `noise` のいずれかを付けてください。",
+              "",
+          ]
+          for it in stale:
+              lines.append(
+                  f"- #{it['number']} [{it['title']}]({it['html_url']}) "
+                  f"(created {it['created_at']})"
+              )
+          lines += [
+              "",
+              "---",
+              "判断不要なら `wontfix` ラベルを付ければ以後の催促対象から外れます。",
+              "",
+              "cc @aa-0921",
+          ]
+          body = "\n".join(lines)
+          title = f"[remind] 未判断 scout Issue {len(stale)} 件 ({today})"
+
+          created = gh("POST", f"/repos/{repo}/issues", {
+              "title": title,
+              "body": body,
+              "labels": ["reminder"],
+          })
+          print(f"催促 Issue 起票: {created.get('html_url')}")
+          PY

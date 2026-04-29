@@ -52,6 +52,8 @@ jobs:
       - name: Run scout
         working-directory: auto-earn-agent
         env:
+          # スコアリング優先: OpenRouter (無料モデル) → Gemini → heuristic
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_PAT }}
           GH_REPO: aa-0921/auto-earn-agent
