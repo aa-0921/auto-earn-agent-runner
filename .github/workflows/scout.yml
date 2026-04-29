@@ -2,9 +2,9 @@ name: Scout
 
 on:
   schedule:
-    # off-minute (:23) で UTC :00 集中による silent skip を回避
+    # 30 分ごと (off-minute :13, :43) で UTC :00/:30 集中による silent skip を回避
     # see lessons.md "GitHub Actions schedule cron は high-load 時に 3h 連続スキップ"
-    - cron: "23 * * * *"
+    - cron: "13,43 * * * *"
   workflow_dispatch:
     inputs:
       debug:
