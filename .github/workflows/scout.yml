@@ -59,6 +59,7 @@ jobs:
           GH_REPO: aa-0921/auto-earn-agent
           DEBUG: ${{ inputs.debug && '1' || '0' }}
           THRESHOLD: ${{ inputs.threshold || '5' }}
+          ALGORA_SESSION_COOKIE: ${{ secrets.ALGORA_SESSION_COOKIE }}
           SOURCES: ${{ inputs.sources || '' }}
         run: python -m scout
 
