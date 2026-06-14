@@ -61,6 +61,11 @@ jobs:
           THRESHOLD: ${{ inputs.threshold || '5' }}
           ALGORA_SESSION_COOKIE: ${{ secrets.ALGORA_SESSION_COOKIE }}
           SOURCES: ${{ inputs.sources || '' }}
+          # メール通知 (score >= ALERT_THRESHOLD で送信)
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+          ALERT_THRESHOLD: "8"
         run: python -m scout
 
       - name: Commit DB to private repo
